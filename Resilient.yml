@@ -1,0 +1,161 @@
+Parameters:
+  InstanceType:
+   Type: String
+   Description: This parameter is to select Instance type
+   AllowedValues:
+    - t2.micro
+    - m4.xlarge
+    - c3.2xlarge
+    - turkeybakin
+  ImageId:
+    Description: This is to select the right image id
+    Type: AWS::EC2::Image::Id
+  AZ1:
+    Description: This is to select the first AvailabilityZone
+    Type: AWS::EC2::AvailabilityZone::Name
+  AZ2:
+    Description: This is to select the first AvailabilityZone
+    Type: AWS::EC2::AvailabilityZone::Name
+
+Resources:
+  MyVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+
+  jorgesecurityGroup1:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: This is for the first Sec Group
+      VpcId: !Ref MyVPC
+      SecurityGroupIngress:
+        - CidrIp: "0.0.0.0/0"
+          FromPort: 80
+          ToPort: 80
+          IpProtocol: tcp
+  jorgesecurityGroup2:
+   Type: AWS::EC2::SecurityGroup
+   Properties:
+     GroupDescription: This is for the first Sec Group
+     VpcId: !Ref MyVPC
+     SecurityGroupIngress:
+       - CidrIp: "0.0.0.0/0"
+         FromPort: 80
+         ToPort: 80
+         IpProtocol: tcp
+  MyIGW:
+    Type: AWS::EC2::InternetGateway
+
+  VPCAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref MyIGW
+      VpcId: !Ref MyVPC
+
+  PubSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Ref AZ1
+      CidrBlock: 10.0.0.0/24
+      VpcId: !Ref MyVPC
+
+  PubSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Ref AZ2
+      CidrBlock: 10.0.1.0/24
+      VpcId: !Ref MyVPC
+  PrivSub1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Ref AZ2
+      CidrBlock: 10.0.3.0/24
+      VpcId: !Ref MyVPC
+  PrivSub2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Ref AZ2
+      CidrBlock: 10.0.4.0/24
+      VpcId: !Ref MyVPC
+
+  MyTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckIntervalSeconds: 15
+      Protocol: HTTP
+      Port: 80
+      TargetType: instance
+      HealthCheckProtocol: HTTP
+      HealthCheckPath: /
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 2
+      VpcId: !Ref MyVPC
+  MyLBListner:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      Protocol: HTTP
+      Port: 80
+      LoadBalancerArn: !Ref GboatLB
+      DefaultActions:
+        - TargetGroupArn: !Ref MyTargetGroup
+          Type: forward
+  BoatengASG:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      AutoScalingGroupName: BoatengASG
+      DesiredCapacity: 2
+      HealthCheckGracePeriod: 45
+      HealthCheckType: ELB
+      LaunchConfigurationName:
+        Ref: GboatLaunchCFG
+      MaxSize: 4
+      MinSize: 2
+      TargetGroupARNs:
+        - !Ref MyTargetGroup
+      VPCZoneIdentifier:
+        - !Ref PubSubnet1
+        - !Ref PubSubnet2
+  GboatLaunchCFG:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties:
+      ImageId: ami-0ff8a91507f77f867
+      InstanceType: !Ref InstanceType
+      SecurityGroups:
+        - !Ref jorgesecurityGroup1
+      UserData:
+        Fn::Base64: !Sub |
+         #!/bin/bash
+         yum install -y httpd
+         systemctl enable httpd
+         systemctl start httpd
+  GboatLB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: GboatLB
+      Subnets:
+        - !Ref PubSubnet1
+        - !Ref PubSubnet2
+      SecurityGroups:
+        - Ref: jorgesecurityGroup1
+
+  RouteTablePub1:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref MyVPC
+
+  RouteTablePub2:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref MyVPC
+  PubRoute2:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref MyIGW
+      RouteTableId: !Ref RouteTablePub2
+  PubRoute1:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref MyIGW
+      RouteTableId: !Ref RouteTablePub1
